@@ -104,7 +104,7 @@ app.post('/webhook', async function (req, _) {
             // プロセスID
             processId = 1;
             // 登録済LINEユーザIDを検索
-            const userData = await existDB("lineuser", "userid", userId);
+            const userData = await existDoubleDB("lineuser", "userid", userId, "usable", 1);
             const arr = Object.entries(userData).shift();
 
             // あり
@@ -127,9 +127,9 @@ app.post('/webhook', async function (req, _) {
                 // 管理キー
                 const managekey = getSecureRandom(11);
                 // lineuser対象カラム
-                const lineuserColumns = ["userid", "managekey"];
+                const lineuserColumns = ["userid", "managekey", "usable"];
                 // lineuser対象値
-                const lineuserValues = [userId, managekey];
+                const lineuserValues = [userId, managekey, 1];
                 // 注文下書き作成
                 const insertDraft = await insertDB(
                     "lineuser",
@@ -1300,6 +1300,26 @@ const existDB = (table, column, value) => {
             await myDB.doInquiry(
                 'SELECT COUNT (*) FROM ?? WHERE ?? = ? LIMIT 1',
                 [table, column, value]
+            );
+
+            // resolve
+            resolve(myDB.getValue[0]);
+
+        } catch (e) {
+            // error
+            reject(e);
+        }
+    });
+};
+
+// select double from database
+const existDoubleDB = (table, column1, value1, column2, value2) => {
+    return new Promise(async (resolve, reject) => {
+        try {
+            // query
+            await myDB.doInquiry(
+                "SELECT COUNT (*) FROM ?? WHERE ?? = ? AND ?? = ? LIMIT 1",
+                [table, column1, value1, column2, value2]
             );
 
             // resolve
