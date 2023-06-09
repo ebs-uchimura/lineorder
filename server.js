@@ -104,7 +104,7 @@ app.post('/webhook', async function (req, _) {
             // プロセスID
             processId = 1;
             // 登録済LINEユーザIDを検索
-            const userData = await existDoubleDB("lineuser", "userid", userId, "usable", 1);
+            const userData = await existDB("lineuser", "userid", userId, "usable", 1);
             const arr = Object.entries(userData).shift();
 
             // あり
@@ -916,7 +916,7 @@ const makeFinalPrice = (userKey) => {
             // 総注文数
             let totalquantity = 0;
             // 商品カラム
-            const priceColumns = ['userid', 'customerno', 'total', 'quantity',];
+            const priceColumns = ['id', 'userid', 'customerno', 'total', 'quantity'];
             // 注文下書きから使用可能データを抽出
             const draftData2 = await selectDoubleDB(
                 'draftorder',
@@ -947,7 +947,7 @@ const makeFinalPrice = (userKey) => {
                 'transactionkey',
                 'totalprice',
                 'totalquantity',
-                'completed',
+                'paid',
             ];
             // トランザクション対象値
             const formValues = [
@@ -1163,7 +1163,9 @@ const makeProductList = async(userID) => {
                     const soleilData = await existDB(
                         "soleil",
                         "customerno",
-                        customerNo1
+                        customerNo1,
+                        null,
+                        null
                     );
                     // 該当配列
                     const arr = Object.entries(soleilData).shift();
@@ -1212,7 +1214,7 @@ const completeOrder = (token, userKey, no) => {
         try {
             // トランザクションを更新
             await updateDB('transaction', 'payment_id', no, 'userkey', userKey);
-            await updateDB('transaction', 'completed', 1, 'userkey', userKey);
+            await updateDB('transaction', 'paid', 1, 'userkey', userKey);
 
             // メッセージ
             const dataString = JSON.stringify({
@@ -1292,35 +1294,24 @@ const getSecureRandom = (size) => {
 
 // - database operation
 // * exist or not
-// select from database
-const existDB = (table, column, value) => {
-    return new Promise(async (resolve, reject) => {
-        try {
-            // query
-            await myDB.doInquiry(
-                'SELECT COUNT (*) FROM ?? WHERE ?? = ? LIMIT 1',
-                [table, column, value]
-            );
-
-            // resolve
-            resolve(myDB.getValue[0]);
-
-        } catch (e) {
-            // error
-            reject(e);
-        }
-    });
-};
-
 // select double from database
-const existDoubleDB = (table, column1, value1, column2, value2) => {
+const existDB = (table, column1, value1, column2, value2) => {
     return new Promise(async (resolve, reject) => {
         try {
-            // query
-            await myDB.doInquiry(
-                "SELECT COUNT (*) FROM ?? WHERE ?? = ? AND ?? = ? LIMIT 1",
-                [table, column1, value1, column2, value2]
-            );
+            if (column2) {
+                // query
+                await myDB.doInquiry(
+                    "SELECT COUNT (*) FROM ?? WHERE ?? = ? AND ?? = ? LIMIT 1",
+                    [table, column1, value1, column2, value2]
+                );
+
+            } else {
+                // query
+                await myDB.doInquiry(
+                    "SELECT COUNT (*) FROM ?? WHERE ?? = ? LIMIT 1",
+                    [table, column1, value1]
+                );
+            }
 
             // resolve
             resolve(myDB.getValue[0]);
