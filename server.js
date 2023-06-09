@@ -82,7 +82,9 @@ app.post('/webhook', async function (req, _) {
                 "transactionkey",
                 randomKey,
                 "userid",
-                userId
+                userId,
+                null,
+                null
             );
 
             // オペレータ対応
@@ -104,7 +106,13 @@ app.post('/webhook', async function (req, _) {
             // プロセスID
             processId = 1;
             // 登録済LINEユーザIDを検索
-            const userData = await existDB("lineuser", "userid", userId, "usable", 1);
+            const userData = await existDB(
+                "lineuser",
+                "userid",
+                userId,
+                "usable",
+                1
+            );
             const arr = Object.entries(userData).shift();
 
             // あり
@@ -193,7 +201,15 @@ app.post('/webhook', async function (req, _) {
             // プロセスリセット
             processId = 0;
             // DB更新（下書きを使用不可に）
-            await updateDB("draftorder", "disabled", 1, "userkey", userkey);
+            await updateDB(
+                "draftorder",
+                "disabled",
+                1,
+                "userkey",
+                userkey,
+                null,
+                null
+            );
             // 初期化商品リストデータ送付
             dataString = await makeInitialList(replyToken, userId, "", false);
             break;
@@ -317,8 +333,26 @@ app.post('/webhook', async function (req, _) {
 
             // プロセスID
             processId = 8;
-            // 注文確定
-            dataString = await completeOrder(replyToken, userkey, 1);
+            // トランザクションを更新
+            await updateDB(
+                "transaction",
+                "payment_id",
+                1,
+                "userkey",
+                userkey,
+                null,
+                null
+            );
+            // メッセージ
+            dataString = JSON.stringify({
+                replyToken: replyToken, // トークン
+                messages: [
+                    {
+                        type: "text",
+                        text: "ご注文ありがとうございました。",
+                    },
+                ],
+            });
             break;
 
         // カード
@@ -350,13 +384,27 @@ app.post('/webhook', async function (req, _) {
                 "transaction",
                 "userkey",
                 userkey,
+                null,
+                null,
                 transColumns,
-                "id"
+                "id",
+                null,
+                false
             );
             // エラー
             if (transData == "error") {
                 console.log(`transaction search error`);
             }
+            // トランザクションを更新
+            await updateDB(
+                "transaction",
+                "payment_id",
+                2,
+                "userkey",
+                userkey,
+                null,
+                null
+            );
             // オペレータ対応
             dataString = JSON.stringify({
                 replyToken: replyToken, // 返信トークン
@@ -382,8 +430,12 @@ app.post('/webhook', async function (req, _) {
                 "lineuser",
                 "userid",
                 userId,
+                null,
+                null,
                 userData2Columns,
-                "id"
+                "id",
+                null,
+                false
             );
 
             // エラー
@@ -428,7 +480,7 @@ app.post('/webhook', async function (req, _) {
                 // 注文カラム
                 const orderColumns = ["id"];
                 // 対象注文下書きID抽出
-                const orderData = await selectDoubleDB(
+                const orderData = await selectDB(
                     "draftorder",
                     "userkey",
                     userkey,
@@ -436,6 +488,7 @@ app.post('/webhook', async function (req, _) {
                     tmpCategoryId,
                     orderColumns,
                     "id",
+                    null,
                     true
                 );
 
@@ -446,8 +499,12 @@ app.post('/webhook', async function (req, _) {
                     "product",
                     "categoryid",
                     tmpCategoryId,
+                    null,
+                    null,
                     product2Columns,
-                    "id"
+                    "id",
+                    null,
+                    false
                 );
 
                 // エラー
@@ -464,7 +521,9 @@ app.post('/webhook', async function (req, _) {
                         "disabled",
                         1,
                         "id",
-                        orderData[0].id
+                        orderData[orderData.length - 1].id,
+                        null,
+                        null
                     );
                 }
 
@@ -568,7 +627,7 @@ app.post('/webhook', async function (req, _) {
                 const tmpAmount = Number(tmpArray2[2]);
 
                 // 注文下書き更新
-                await updateDoubleDB(
+                await updateDB(
                     "draftorder",
                     "quantity",
                     tmpAmount,
@@ -625,9 +684,12 @@ const finalText = async(key, flg) => {
         "draftorder",
         "userkey",
         key,
+        "disabled",
+        0,
         order1Columns,
         "id",
-        true
+        null,
+        false
     );
 
     // エラー
@@ -648,8 +710,12 @@ const finalText = async(key, flg) => {
                     "product",
                     "productid",
                     Number(od2.product_id),
+                    null,
+                    null,
                     product6Columns,
-                    "id"
+                    "id",
+                    null,
+                    false
                 );
                 // エラー
                 if (product6 == "error") {
@@ -692,8 +758,12 @@ const finalText = async(key, flg) => {
                     "product",
                     "categoryid",
                     Number(od2.tmpcategoryid),
+                    null,
+                    null,
                     product7Columns,
-                    "id"
+                    "id",
+                    null,
+                    false
                 );
                 // 一時カテゴリID
                 const tmpCategoryID = product7[0].categoryid;
@@ -743,8 +813,11 @@ const updateOrder = (userKey) => {
                 "draftorder",
                 "userkey",
                 userKey,
+                null,
+                null,
                 order2Columns,
                 "id",
+                null,
                 true
             );
 
@@ -788,8 +861,12 @@ const updateOrder = (userKey) => {
                         "product",
                         "categoryid",
                         categoryId,
+                        null,
+                        null,
                         product3Columns,
-                        "id"
+                        "id",
+                        null,
+                        false
                     );
 
                     // エラー
@@ -857,7 +934,7 @@ const updateOrder = (userKey) => {
                     // product5
                     const product5Columns = ["productid", "price"];
                     // 商品抽出
-                    const product5 = await selectDoubleDB(
+                    const product5 = await selectDB(
                         "product",
                         "amount",
                         req.amount,
@@ -865,6 +942,7 @@ const updateOrder = (userKey) => {
                         req.categoryNo,
                         product5Columns,
                         "id",
+                        null,
                         false
                     );
 
@@ -883,7 +961,9 @@ const updateOrder = (userKey) => {
                         "product_id",
                         product5[0].productid,
                         "id",
-                        req.id
+                        req.id,
+                        null,
+                        null
                     );
                     // 下書き注文更新
                     await updateDB(
@@ -891,7 +971,9 @@ const updateOrder = (userKey) => {
                         "total",
                         totalPrice,
                         "id",
-                        req.id
+                        req.id,
+                        null,
+                        null
                     );
                 })
             );
@@ -918,7 +1000,7 @@ const makeFinalPrice = (userKey) => {
             // 商品カラム
             const priceColumns = ['id', 'userid', 'customerno', 'total', 'quantity'];
             // 注文下書きから使用可能データを抽出
-            const draftData2 = await selectDoubleDB(
+            const draftData2 = await selectDB(
                 'draftorder',
                 'userkey',
                 userKey,
@@ -926,6 +1008,7 @@ const makeFinalPrice = (userKey) => {
                 0,
                 priceColumns,
                 'id',
+                null,
                 true
             );
 
@@ -985,7 +1068,9 @@ const makeFinalPrice = (userKey) => {
                     "transaction_id",
                     tmpReg.insertId,
                     "id",
-                    od5.id
+                    od5.id,
+                    null,
+                    null
                 );
             });
             // resolved
@@ -1103,8 +1188,12 @@ const makeProductList = async(userID) => {
         "lineuser",
         "userid",
         userID,
+        null,
+        null,
         user1Columns,
-        "id"
+        "id",
+        null,
+        false
     );
 
     // エラー
@@ -1120,8 +1209,12 @@ const makeProductList = async(userID) => {
         "ebisuorder",
         "customerno",
         customerNo1,
+        null,
+        null,
         historyColumns,
-        "id"
+        "id",
+        null,
+        false
     );
 
     // エラー
@@ -1144,8 +1237,12 @@ const makeProductList = async(userID) => {
                     "product",
                     "categoryid",
                     hs.categoryid,
+                    null,
+                    null,
                     product1Columns,
-                    "id"
+                    "id",
+                    null,
+                    false
                 );
 
                 // エラー
@@ -1187,12 +1284,13 @@ const makeProductList = async(userID) => {
                     // 結果を配列に格納
                     productArray.push({
                         type: "message", // message
-                        label: product1[0].categoryname, // 本数（単価用）
+                        label: product1[0].categoryname, // カテゴリ名
                         text: `商品ID:${tmpcategoryid.toString()}`, // メッセージ
                     });
                 }
             })
         );
+
     } catch (e) {
         return 'error';
 
@@ -1207,35 +1305,6 @@ const makeProductList = async(userID) => {
         return productArray;
     }
 }
-
-// 注文完了
-const completeOrder = (token, userKey, no) => {
-    return new Promise(async (resolve, reject) => {
-        try {
-            // トランザクションを更新
-            await updateDB('transaction', 'payment_id', no, 'userkey', userKey);
-            await updateDB('transaction', 'paid', 1, 'userkey', userKey);
-
-            // メッセージ
-            const dataString = JSON.stringify({
-                replyToken: token, // トークン
-                messages: [
-                    {
-                        type: 'text',
-                        text: 'ご注文ありがとうございました。',
-                    },
-                ],
-            });
-            // resolved
-            resolve(dataString);
-
-        } catch(e) {
-            // エラー
-            //console.log(e);
-            reject(e);
-        }
-    });
-};
 
 // 数量名称を確定
 const makeUnitStr = id => {
@@ -1324,58 +1393,82 @@ const existDB = (table, column1, value1, column2, value2) => {
 };
 
 // * select
-// select from database
-const selectDB = (table, column, values, field, order, flg = false) => {
+// select all from table
+const selectDB = (table, column1, value1, column2, value2, field, order, limit, flg) => {
     return new Promise(async (resolve, reject) => {
         try {
-            // if normal mode
-            if (!flg) {
-                // query
-                await myDB.doInquiry(
-                    'SELECT ?? FROM ?? WHERE ?? IN (?) ORDER BY ??',
-                    [field, table, column, values, order]
-                );
+            // query string
+            let queryString = "";
+            // array
+            let placeholder = [];
 
-            // if recent mode
+            // field
+            if (field) {
+                if (column1) {
+                    // query
+                    queryString = "SELECT ?? FROM ?? WHERE ?? IN (?)";
+                    placeholder = [field, table, column1, value1];
+
+                } else {
+                    // query
+                    queryString = "SELECT ?? FROM ??";
+                    placeholder = [field, table];
+                }
+
             } else {
-                // query
-                await myDB.doInquiry(
-                    'SELECT ?? FROM ?? WHERE ?? IN (?) AND ?? IN (?) AND ?? IN (?) AND ?? > date(current_timestamp - interval 1 day) ORDER BY ??',
-                    [field, table, column, values, 'completed', 0, 'disabled', 0, 'created_at', order]
-                );
+                // if double search
+                if (column1) {
+                    // query
+                    queryString = "SELECT * FROM ?? WHERE ?? IN (?)";
+                    placeholder = [table, column1, value1];
+
+                // if single search
+                } else {
+                    // query
+                    queryString = "SELECT * FROM ??";
+                    placeholder = [table];
+                }
             }
+
+            // if double query
+            if (column1 && column2) {
+                queryString += " AND ?? IN (?)";
+                placeholder.push(column2);
+                placeholder.push(value2);
+            }
+
+            // if recent only
+            if (flg) {
+                // if double search
+                if (column1) {
+                    queryString += " AND ?? > date(current_timestamp - interval 1 day)"
+                
+                // if single search
+                } else {
+                    queryString +=
+                        " WHERE ?? > date(current_timestamp - interval 1 day)";
+                }
+                placeholder.push("created_at");
+            }
+
+            // if order exists
+            if (order) {
+                queryString += " ORDER BY ?";
+                placeholder.push(order);
+            }
+
+            // if limit exists
+            if (limit) {
+                queryString += " LIMIT ?";
+                placeholder.push(limit);
+            }
+
+            // do query
+            await myDB.doInquiry(queryString, placeholder);
+
             // resolve
             resolve(myDB.getValue);
 
-        } catch (e) {
-            // error
-            reject(e);
-        }
-    });
-};
-
-// select on multiple condition
-const selectDoubleDB = (table, column1, value1, column2, value2, field, order, flg) => {
-    return new Promise(async (resolve, reject) => {
-        try {
-            // if normal mode
-            if (!flg) {
-                // query
-                await myDB.doInquiry(
-                    'SELECT ?? FROM ?? WHERE ?? IN (?) AND ?? IN (?) ORDER BY ??',
-                    [field, table, column1, value1, column2, value2, order]
-                );
-
-            // if recent mode
-            } else {
-                // query
-                await myDB.doInquiry(
-                    'SELECT ?? FROM ?? WHERE ?? IN (?) AND ?? IN (?) AND ?? IN (?) AND ?? IN (?) AND ?? > date(current_timestamp - interval 1 day) ORDER BY ??',
-                    [field, table, column1, value1, column2, value2, 'completed', 0, 'disabled', 0, 'created_at', order]
-                );
-            }
-            // resolve
-            resolve(myDB.getValue);
         } catch (e) {
             // error
             reject(e);
@@ -1402,11 +1495,30 @@ const insertDB = (table, columns, values) => {
 
 // * update
 // update data
-const updateDB = (table, setcol, setval, selcol, selval) => {
+const updateDB = (
+    table,
+    setcol,
+    setval,
+    selcol1,
+    selval1,
+    selcol2,
+    selval2
+) => {
     return new Promise(async (resolve, reject) => {
         try {
-            // query
-            await myDB.doInquiry('UPDATE ?? SET ?? = ? WHERE ?? = ?', [table, setcol, setval, selcol, selval]);
+            if (selcol2) {
+                // query
+                await myDB.doInquiry(
+                    "UPDATE ?? SET ?? = ? WHERE ?? IN (?) AND ?? IN (?)",
+                    [table, setcol, setval, selcol1, selval1, selcol2, selval2]
+                );
+            } else {
+                // query
+                await myDB.doInquiry(
+                    "UPDATE ?? SET ?? = ? WHERE ?? IN (?)",
+                    [table, setcol, setval, selcol1, selval1]
+                );
+            }
             // resolve
             resolve();
 
@@ -1417,21 +1529,4 @@ const updateDB = (table, setcol, setval, selcol, selval) => {
     });
 };
 
-// update data
-const updateDoubleDB = (table, setcol, setval, selcol1, selval1, selcol2, selval2) => {
-    return new Promise(async (resolve, reject) => {
-        try {
-            // query
-            await myDB.doInquiry(
-                'UPDATE ?? SET ?? = ? WHERE ?? = ? AND ?? = ?',
-                [table, setcol, setval, selcol1, selval1, selcol2, selval2]
-            );
-            // resolve
-            resolve();
-        } catch (e) {
-            // error
-            reject(e);
-        }
-    });
-};
 
