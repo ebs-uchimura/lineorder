@@ -52,25 +52,27 @@ app.post('/webhook', async function (req, _) {
     let dataString = '';
     // 送付有無フラグ
     let sendFlg = false;
-    
+    // 二重送付有無フラグ
+    let doubleSendFlg = false;
     // LINEユーザID
     const userId = req.body.events[0].source.userId;
     // 返信トークン
     const replyToken = req.body.events[0].replyToken;
+    // メッセージ
+    const messageStr = zen2han(req.body.events[0].message.text).toLowerCase();
 
     // メッセージ内容により分岐
-    switch (req.body.events[0].message.text) {
+    switch (messageStr) {
         // 停止
         case "break":
-            // メッセージ送付なし
-            sendFlg = false;
             // プロセスリセット
             processId = 0;
             break;
 
         // 編集
-        case "edit":
-            // メッセージ送付なし
+        /*
+        case 'edit':
+            // メッセージ送付あり
             sendFlg = true;
             // プロセスリセット
             processId = 0;
@@ -78,29 +80,30 @@ app.post('/webhook', async function (req, _) {
             const randomKey = getSecureRandom(10);
             // DB更新（下書きを使用不可に）
             await updateDB(
-                "lineuser",
-                "transactionkey",
+                'lineuser',
+                'transactionkey',
                 randomKey,
-                "userid",
+                'userid',
                 userId,
                 null,
                 null
             );
 
-            // オペレータ対応
+            // カード画面URL発行
             dataString = JSON.stringify({
                 replyToken: replyToken, // 返信トークン
                 messages: [
                     {
-                        type: "text",
-                        text: `下記URLをタップしてカード編集画面に移動して下さい。\nhttps://card.suijinclub.com/edit?key=${randomKey}`,
+                        type: 'text',
+                        text: `下記URLをタップしてカード編集画面に移動して下さい。\nhttps://card.suijinclub.com/edit?key=${randomKey}\n有効期限：発行から24時間`,
                     },
                 ],
             });
             break;
+        */
 
         // 「前回と同じ」押下時
-        case "same":
+        case "process:same":
             // メッセージ送付あり
             sendFlg = true;
             // プロセスID
@@ -113,6 +116,7 @@ app.post('/webhook', async function (req, _) {
                 "usable",
                 1
             );
+            // 最初の要素を除去
             const arr = Object.entries(userData).shift();
 
             // あり
@@ -126,8 +130,8 @@ app.post('/webhook', async function (req, _) {
                     "お届け先とラベルは前回と同じでよろしいですか？",
                     "はい",
                     "いいえ",
-                    "yes",
-                    "no"
+                    "process:yes",
+                    "process:no"
                 );
 
                 // なし
@@ -147,6 +151,7 @@ app.post('/webhook', async function (req, _) {
                 // エラー
                 if (insertDraft == "error") {
                     console.log(`lineuser insertion error`);
+
                     // 成功
                 } else {
                     console.log(
@@ -164,25 +169,41 @@ app.post('/webhook', async function (req, _) {
                         },
                     ],
                 });
+                // 対応待ち下書きカラム
+                const waitColumns = [
+                    "userid",
+                    "managekey",
+                    "status_id",
+                    "waittype_id",
+                ];
+
+                // 対応待ち下書き作成
+                const waitTalk = await insertDB("waittalk", waitColumns, [
+                    userId,
+                    managekey,
+                    2,
+                    1,
+                ]);
+
+                // エラー
+                if (waitTalk == "error") {
+                    console.log(`waittime insertion error`);
+                } else {
+                    console.log(
+                        `inital insertion to waittime completed for ${userId}.`
+                    );
+                }
             }
             break;
 
         // ボットモード
-        case "yes":
+        case "process:yes":
             // メッセージ送付あり
             sendFlg = true;
             // 戻り禁止
             if (processId > 1) {
-                // オペレータ対応
-                dataString = JSON.stringify({
-                    replyToken: replyToken, // 返信トークン
-                    messages: [
-                        {
-                            type: "text",
-                            text: "不正な操作です。",
-                        },
-                    ],
-                });
+                // 二重送付あり
+                doubleSendFlg = true;
                 // プロセスID
                 processId = 99;
                 break;
@@ -195,7 +216,7 @@ app.post('/webhook', async function (req, _) {
             break;
 
         // 再起動
-        case "return":
+        case "process:return":
             // メッセージ送付あり
             sendFlg = true;
             // プロセスリセット
@@ -215,8 +236,9 @@ app.post('/webhook', async function (req, _) {
             break;
 
         // オペレータモード
-        case "no":
-        case "others":
+        case "process:no":
+            // 管理キー
+            const managekey = getSecureRandom(11);
             // メッセージ送付あり
             sendFlg = true;
             // プロセスリセット
@@ -227,31 +249,43 @@ app.post('/webhook', async function (req, _) {
                 messages: [
                     {
                         type: "text",
-                        text: "オペレータが対応いたします。アプリを閉じてお待ち下さい。",
+                        text: `オペレータが対応いたします。アプリを閉じてお待ち下さい。(管理ID: ${managekey})`,
                     },
                 ],
             });
+            // 対応待ち下書きカラム
+            const waitColumns = [
+                "userid",
+                "managekey",
+                "status_id",
+                "waittype_id",
+            ];
+            // 対応待ち下書き作成
+            const waitTalk = await insertDB("waittalk", waitColumns, [
+                userId,
+                managekey,
+                2,
+                2,
+            ]);
+
+            // エラー
+            if (waitTalk == "error") {
+                console.log(`waittime insertion error`);
+            } else {
+                console.log(
+                    `inital insertion to waittime completed for ${userId}.`
+                );
+            }
             break;
 
         // 注文OK
         case "ok":
-        case "OK":
-        case "ＯＫ":
-        case "ｏｋ":
             // メッセージ送付あり
             sendFlg = true;
             // 戻り禁止
             if (processId > 4) {
-                // オペレータ対応
-                dataString = JSON.stringify({
-                    replyToken: replyToken, // 返信トークン
-                    messages: [
-                        {
-                            type: "text",
-                            text: "不正な操作です。",
-                        },
-                    ],
-                });
+                // 二重送付あり
+                doubleSendFlg = true;
                 // プロセスID
                 processId = 99;
                 break;
@@ -269,27 +303,19 @@ app.post('/webhook', async function (req, _) {
                 `こちらの内容でよろしいですか？\n${tmpText3}`,
                 "はい",
                 "いいえ",
-                "final",
-                "return"
+                "process:final",
+                "process:return"
             );
             break;
 
         // 支払い方法
-        case "final":
+        case "process:final":
             // メッセージ送付あり
             sendFlg = true;
             // 戻り禁止
             if (processId > 6) {
-                // オペレータ対応
-                dataString = JSON.stringify({
-                    replyToken: replyToken, // 返信トークン
-                    messages: [
-                        {
-                            type: "text",
-                            text: "不正な操作です。",
-                        },
-                    ],
-                });
+                // 二重送付あり
+                doubleSendFlg = true;
                 // プロセスID
                 processId = 99;
                 break;
@@ -305,27 +331,19 @@ app.post('/webhook', async function (req, _) {
                 "お支払い方法を選択してください",
                 "代金引換",
                 "クレジットカード",
-                "cod",
-                "card"
+                "process:cod",
+                "process:card"
             );
             break;
 
         // 代金引換
-        case "cod":
+        case "process:cod":
             // メッセージ送付あり
             sendFlg = true;
             // 戻り禁止
             if (processId > 7) {
-                // オペレータ対応
-                dataString = JSON.stringify({
-                    replyToken: replyToken, // 返信トークン
-                    messages: [
-                        {
-                            type: "text",
-                            text: "不正な操作です。",
-                        },
-                    ],
-                });
+                // 二重送付あり
+                doubleSendFlg = true;
                 // プロセスID
                 processId = 99;
                 break;
@@ -356,28 +374,21 @@ app.post('/webhook', async function (req, _) {
             break;
 
         // カード
-        case "card":
+        case "process:card":
             // メッセージ送付あり
             sendFlg = true;
+
             // 戻り禁止
             if (processId > 7) {
-                // オペレータ対応
-                dataString = JSON.stringify({
-                    replyToken: replyToken, // 返信トークン
-                    messages: [
-                        {
-                            type: "text",
-                            text: "不正な操作です。",
-                        },
-                    ],
-                });
+                // 二重送付あり
+                doubleSendFlg = true;
                 // プロセスID
                 processId = 99;
                 break;
             }
             // プロセスID
             processId = 8;
-            // カラム
+            // transaction対象カラム
             const transColumns = ["transactionkey"];
             // 確定注文抽出
             const transData = await selectDB(
@@ -405,13 +416,13 @@ app.post('/webhook', async function (req, _) {
                 null,
                 null
             );
-            // オペレータ対応
+            // 決済画面移行
             dataString = JSON.stringify({
                 replyToken: replyToken, // 返信トークン
                 messages: [
                     {
                         type: "text",
-                        text: `下記URLをタップして決済画面に移動して下さい。\nhttps://card.suijinclub.com/card?key=${transData[0].transactionkey}`,
+                        text: `下記URLをタップして決済画面に移動して下さい。\nhttps://card.suijinclub.com/card?key=${transData[0].transactionkey}\n※発行から24時間有効`,
                     },
                 ],
             });
@@ -419,11 +430,9 @@ app.post('/webhook', async function (req, _) {
 
         // デフォルト
         default:
-            // メッセージ送付なし
-            sendFlg = false;
             // メッセージ
             const tmpMessage = req.body.events[0].message.text;
-            // カラム
+            // lineuser対象カラム
             const userData2Columns = ["customerno"];
             // 顧客番号抽出
             const userData2 = await selectDB(
@@ -440,28 +449,21 @@ app.post('/webhook', async function (req, _) {
 
             // エラー
             if (userData2 == "error") {
-                console.log(`product search error`);
+                console.log(`product search error 1`);
             }
             // 顧客番号
             const customerNo2 = userData2[0].customerno;
 
             // 「商品ID」を含む
-            if (tmpMessage.includes("商品ID")) {
+            if (tmpMessage.includes("process:商品ID")) {
                 // メッセージ送付あり
                 sendFlg = true;
 
                 // 戻り禁止
                 if (processId > 3 || orderFlg) {
-                    // オペレータ対応
-                    dataString = JSON.stringify({
-                        replyToken: replyToken, // 返信トークン
-                        messages: [
-                            {
-                                type: "text",
-                                text: "不正な操作です。",
-                            },
-                        ],
-                    });
+                    // 二重送付あり
+                    doubleSendFlg = true;
+                    // 戻り防止
                     orderFlg = false;
                     // プロセスID
                     processId = 99;
@@ -475,9 +477,9 @@ app.post('/webhook', async function (req, _) {
                 // メッセージ分割
                 const tmpArray1 = tmpMessage.split(":");
                 // カテゴリID
-                const tmpCategoryId = tmpArray1[1];
+                const tmpCategoryId = tmpArray1[2];
 
-                // 注文カラム
+                // 注文対象カラム
                 const orderColumns = ["id"];
                 // 対象注文下書きID抽出
                 const orderData = await selectDB(
@@ -492,15 +494,15 @@ app.post('/webhook', async function (req, _) {
                     true
                 );
 
-                // product
+                // 商品対象カラム
                 const product2Columns = ["id", "categoryid", "categoryname"];
                 // カテゴリID抽出
                 const product2 = await selectDB(
                     "product",
                     "categoryid",
                     tmpCategoryId,
-                    null,
-                    null,
+                    "disable",
+                    0,
                     product2Columns,
                     "id",
                     null,
@@ -509,7 +511,7 @@ app.post('/webhook', async function (req, _) {
 
                 // エラー
                 if (product2 == "error") {
-                    console.log(`product search error`);
+                    console.log(`product search error 2`);
                 }
 
                 // 重複あり
@@ -527,6 +529,7 @@ app.post('/webhook', async function (req, _) {
                     );
                 }
 
+                // カテゴリID
                 const categoryid = product2[0].categoryid;
 
                 // 注文下書きカラム
@@ -569,22 +572,22 @@ app.post('/webhook', async function (req, _) {
                                     {
                                         type: "message",
                                         label: "6本", // 本数単価（合計）
-                                        text: `注文数:${categoryid}:6`,
+                                        text: `process:注文数:${categoryid}:6`,
                                     },
                                     {
                                         type: "message",
                                         label: "12本", // 本数単価（合計）
-                                        text: `注文数:${categoryid}:12`,
+                                        text: `process:注文数:${categoryid}:12`,
                                     },
                                     {
                                         type: "message",
                                         label: "24本", // 本数単価（合計）
-                                        text: `注文数:${categoryid}:24`,
+                                        text: `process:注文数:${categoryid}:24`,
                                     },
                                     {
                                         type: "message",
                                         label: "36本", // 本数単価（合計）
-                                        text: `注文数:${categoryid}:36`,
+                                        text: `process:注文数:${categoryid}:36`,
                                     },
                                 ],
                             },
@@ -593,21 +596,13 @@ app.post('/webhook', async function (req, _) {
                 });
 
                 // 「注文数」を含む
-            } else if (tmpMessage.includes("注文数")) {
+            } else if (tmpMessage.includes("process:注文数")) {
                 // メッセージ送付あり
                 sendFlg = true;
                 // 戻り禁止
                 if (processId > 3 || !orderFlg) {
-                    // オペレータ対応
-                    dataString = JSON.stringify({
-                        replyToken: replyToken, // 返信トークン
-                        messages: [
-                            {
-                                type: "text",
-                                text: "不正な操作です。",
-                            },
-                        ],
-                    });
+                    // 二重送付あり
+                    doubleSendFlg = true;
                     // 戻り防止
                     orderFlg = false;
                     // プロセスID
@@ -622,9 +617,9 @@ app.post('/webhook', async function (req, _) {
                 // メッセージ分割
                 const tmpArray2 = tmpMessage.split(":");
                 // カテゴリID
-                const tmpCategoryId = tmpArray2[1];
+                const tmpCategoryId = tmpArray2[2];
                 // 注文数量
-                const tmpAmount = Number(tmpArray2[2]);
+                const tmpAmount = Number(tmpArray2[3]);
 
                 // 注文下書き更新
                 await updateDB(
@@ -649,12 +644,29 @@ app.post('/webhook', async function (req, _) {
             }
     }
 
-    // メッセージ送付時
-    if (sendFlg) {
+    // 二重メッセージ送付時
+    if (doubleSendFlg) {
+        // 最初に戻る
+        dataString = JSON.stringify({
+            replyToken: replyToken, // 返信トークン
+            messages: [
+                {
+                    type: 'text',
+                    text: 'もう一度最初からお願いいたします。',
+                },
+            ],
+        });
+        // メッセージ送付
+        sendMessage(dataString);
+        // 最初に戻る
+        const topString = gotoTop(replyToken);
+        // トップに戻るメッセージ送付
+        sendMessage(topString);
+
+    } else if (sendFlg) {
         // メッセージ送付
         sendMessage(dataString);
     }
-
 });
 
 // 3001番待機
@@ -665,164 +677,174 @@ app.listen(PORT, () => {
 // 最終注文内容作成
 const finalText = async(key, flg) => {
     // テキスト連結用
-    let tmpText = "";
+    let tmpText = '';
     // 単位
-    let unitStr = "";
+    let unitStr = '';
+    // 最終注文内容
+    let finalStr = '';
     // 最終価格
     let lastTotalPrice = 0;
     // カウンタ
     let counter = 0;
 
-    // draftorder
+    // 注文対象カラム
     const order1Columns = [
-        "tmpcategoryid",
-        "product_id",
-        "quantity",
+        'tmpcategoryid',
+        'product_id',
+        'quantity',
     ];
     // 注文下書きから抽出
     const draftData1 = await selectDB(
-        "draftorder",
-        "userkey",
+        'draftorder',
+        'userkey',
         key,
-        "disabled",
+        'disabled',
         0,
         order1Columns,
-        "id",
+        'id',
         null,
         false
     );
 
     // エラー
-    if (draftData1 == "error") {
+    if (draftData1 == 'error') {
        console.log(`draftorder search error`);
-    }
-
-    // 全Promiseを待機
-    await Promise.all(
-        // 注文データ内ループ
-        draftData1.map(async (od2) => {
-            // フラグオン
-            if (flg) {
-                // product6
-                const product6Columns = ["categoryid", "price", "categoryname"];
-                // 商品抽出
-                const product6 = await selectDB(
-                    "product",
-                    "productid",
-                    Number(od2.product_id),
-                    null,
-                    null,
-                    product6Columns,
-                    "id",
-                    null,
-                    false
-                );
-                // エラー
-                if (product6 == "error") {
-                   console.log(`product search error`);
-                }
-
-                // 一時カテゴリID
-                const tmpCategoryID = product6[0].categoryid;
-                // 合計金額
-                const totalprice = product6[0].price * od2.quantity;
-                // 価格加算
-                lastTotalPrice += totalprice;
-                // 数量名称
-                unitStr = makeUnitStr(tmpCategoryID);
-
-                // 一時改行コード
-                let tmpRet;
-
-                // データなし
-                if (counter == 0) {
-                    tmpRet = "";
-                } else {
-                    tmpRet = "\n";
-                }
-
-                // 該当カテゴリ名あり
-                if (product6[0].categoryname) {
-                    // テキスト連結
-                    tmpText += `${tmpRet}${product6[0].categoryname.slice(0, 11)}x${od2.quantity}${unitStr}:${totalprice.toLocaleString()}円`;
-                }
-                
-            } else {
-                // product7
-                const product7Columns = [
-                    "categoryname",
-                    "categoryid",
-                ];
-                // 商品抽出
-                const product7 = await selectDB(
-                    "product",
-                    "categoryid",
-                    Number(od2.tmpcategoryid),
-                    null,
-                    null,
-                    product7Columns,
-                    "id",
-                    null,
-                    false
-                );
-                // 一時カテゴリID
-                const tmpCategoryID = product7[0].categoryid;
-                // 数量名称
-                unitStr = makeUnitStr(tmpCategoryID);
-                // 一時改行コード
-                let tmpRet;
-                // データなし
-                if (counter == 0) {
-                    tmpRet = "";
-                } else {
-                    tmpRet = "\n";
-                }
-                // テキスト連結
-                if (product7[0].categoryname) {
-                    tmpText += `${tmpRet}${product7[0].categoryname.slice(0, 11)}:${od2.quantity}${unitStr}`;
-                }
-            }
-            // カウンタ加算
-            counter++;
-        })
-    );
-
-    // 最終注文内容
-    let finalStr;
-
-    // 最終
-    if (flg) {
-        // テキスト確定
-        finalStr = `${tmpText}\n送料: ${SHIPMENTFEE}円\n合計金額: ${(lastTotalPrice + SHIPMENTFEE).toLocaleString()}円`;
     } else {
-        // そのまま
-        finalStr = tmpText;
+        // 全Promiseを待機
+        await Promise.all(
+            // 注文データ内ループ
+            draftData1.map(async (od2) => {
+                // フラグオン
+                if (flg) {
+                    // 商品対象カラム
+                    const product6Columns = [
+                        "categoryid",
+                        "price",
+                        "categoryname",
+                    ];
+                    // 商品抽出
+                    const product6 = await selectDB(
+                        "product",
+                        "productid",
+                        Number(od2.product_id),
+                        "disable",
+                        0,
+                        product6Columns,
+                        "id",
+                        null,
+                        false
+                    );
+                    // エラー
+                    if (product6 == "error") {
+                        console.log(`product search error 3`);
+                    }
+
+                    // 一時カテゴリID
+                    const tmpCategoryID = product6[0].categoryid;
+                    // 合計金額
+                    const totalprice = product6[0].price * od2.quantity;
+                    // 価格加算
+                    lastTotalPrice += totalprice;
+                    // 数量名称
+                    unitStr = makeUnitStr(tmpCategoryID);
+
+                    // 一時改行コード
+                    let tmpRet;
+
+                    // データなし
+                    if (counter == 0) {
+                        tmpRet = "";
+                    } else {
+                        tmpRet = "\n";
+                    }
+
+                    // 該当カテゴリ名あり
+                    if (product6[0].categoryname) {
+                        // テキスト連結
+                        tmpText += `${tmpRet}${product6[0].categoryname.slice(
+                            0,
+                            11
+                        )}x${
+                            od2.quantity
+                        }${unitStr}:${totalprice.toLocaleString()}円`;
+                    }
+                } else {
+                    // 商品対象カラム
+                    const product7Columns = ["categoryname", "categoryid"];
+                    // 商品抽出
+                    const product7 = await selectDB(
+                        "product",
+                        "categoryid",
+                        Number(od2.tmpcategoryid),
+                        "disable",
+                        0,
+                        product7Columns,
+                        "id",
+                        null,
+                        false
+                    );
+                    // 一時カテゴリID
+                    const tmpCategoryID = product7[0].categoryid;
+                    // 数量名称
+                    unitStr = makeUnitStr(tmpCategoryID);
+                    // 一時改行コード
+                    let tmpRet;
+                    // データなし
+                    if (counter == 0) {
+                        tmpRet = "";
+                    } else {
+                        tmpRet = "\n";
+                    }
+                    // テキスト連結
+                    if (product7[0].categoryname) {
+                        tmpText += `${tmpRet}${product7[0].categoryname.slice(
+                            0,
+                            11
+                        )}:${od2.quantity}${unitStr}`;
+                    }
+                }
+                // カウンタ加算
+                counter++;
+            })
+        );
+
+        // 最終
+        if (flg) {
+            // テキスト確定
+            finalStr = `${tmpText}\n送料: ${SHIPMENTFEE}円\n合計金額: ${(
+                lastTotalPrice + SHIPMENTFEE
+            ).toLocaleString()}円`;
+        } else {
+            // そのまま
+            finalStr = tmpText;
+        }
+
+        // 注文内容を返す
+        return finalStr;
     }
-    // 注文内容を返す
-    return finalStr;
 }
 
 // 注文リスト作成
 const updateOrder = (userKey) => {
     return new Promise(async (resolve, reject) => {
         try {
-            // draftData2
-            const order2Columns = ["id", "tmpcategoryid", "quantity"];
+            // 注文対象カラム
+            const order2Columns = ['id', 'tmpcategoryid', 'quantity'];
             // 下書き注文抽出
             const draftData2 = await selectDB(
-                "draftorder",
-                "userkey",
+                'draftorder',
+                'userkey',
                 userKey,
                 null,
                 null,
                 order2Columns,
-                "id",
+                'id',
                 null,
                 true
             );
 
             // エラー
-            if (draftData2 == "error") {
+            if (draftData2 == 'error') {
                 console.log(`draftorder search error`);
                 reject();
             }
@@ -854,24 +876,24 @@ const updateOrder = (userKey) => {
                 draftData2.map(async (od1) => {
                     // カテゴリID
                     const categoryId = Number(od1.tmpcategoryid);
-                    // product3
-                    const product3Columns = ["amount"];
+                    // 商品対象カラム
+                    const product3Columns = ['amount'];
                     // 商品ID抽出
                     const product3 = await selectDB(
-                        "product",
-                        "categoryid",
+                        'product',
+                        'categoryid',
                         categoryId,
-                        null,
-                        null,
+                        'disable',
+                        0,
                         product3Columns,
-                        "id",
+                        'id',
                         null,
                         false
                     );
 
                     // エラー
-                    if (product3 == "error") {
-                       console.log(`product search error`);
+                    if (product3 == 'error') {
+                       console.log(`product search error 4`);
                     }
                     // 数量配列
                     let amountArray = [];
@@ -885,7 +907,7 @@ const updateOrder = (userKey) => {
 
                     // 数量により分岐
                     if (amountArray.length == 0) {
-                       console.log("no data");
+                       console.log('no data');
                         // 1
                     } else if (amountArray.length == 1) {
                         finalamount = amountArray[0];
@@ -931,24 +953,24 @@ const updateOrder = (userKey) => {
             await Promise.all(
                 // 注文内容ループ
                 requests.map(async (req) => {
-                    // product5
-                    const product5Columns = ["productid", "price"];
+                    // 商品対象カラム
+                    const product5Columns = ['productid', 'price'];
                     // 商品抽出
                     const product5 = await selectDB(
-                        "product",
-                        "amount",
+                        'product',
+                        'amount',
                         req.amount,
-                        "categoryid",
+                        'categoryid',
                         req.categoryNo,
                         product5Columns,
-                        "id",
+                        'id',
                         null,
                         false
                     );
 
                     // エラー
-                    if (product5 == "error") {
-                       console.log(`product search error`);
+                    if (product5 == 'error') {
+                       console.log(`product search error 5`);
                     }
                     // 数量
                     const tmpQuantity = req.quantity;
@@ -957,20 +979,20 @@ const updateOrder = (userKey) => {
 
                     // 下書き注文更新
                     await updateDB(
-                        "draftorder",
-                        "product_id",
+                        'draftorder',
+                        'product_id',
                         product5[0].productid,
-                        "id",
+                        'id',
                         req.id,
                         null,
                         null
                     );
                     // 下書き注文更新
                     await updateDB(
-                        "draftorder",
-                        "total",
+                        'draftorder',
+                        'total',
                         totalPrice,
-                        "id",
+                        'id',
                         req.id,
                         null,
                         null
@@ -1014,7 +1036,7 @@ const makeFinalPrice = (userKey) => {
 
             // エラー
             if (draftData2 == 'error') {
-               console.log(`product search error`);
+               console.log(`product search error 6`);
             }
             // 対象注文を足し上げる
             draftData2.map(async (od4) => {
@@ -1064,10 +1086,10 @@ const makeFinalPrice = (userKey) => {
             draftData2.map(async (od5) => {
                 // 下書き注文更新
                 await updateDB(
-                    "draftorder",
-                    "transaction_id",
+                    'draftorder',
+                    'transaction_id',
                     tmpReg.insertId,
-                    "id",
+                    'id',
                     od5.id,
                     null,
                     null
@@ -1078,7 +1100,7 @@ const makeFinalPrice = (userKey) => {
 
         } catch(e) {
             // エラー
-            //console.log(e);
+            console.log(e);
             reject(e);
         }
     });
@@ -1119,36 +1141,54 @@ const makeQuestionList = async (token, title, text, label1, label2, url1, url2) 
 // 初期リスト作成
 const makeInitialList = async (token, userID, text, flg) => {
     // タイトル
-    let titleString = "";
+    let titleString = '';
     // 連結用
-    let fixedString = "";
+    let fixedString = '';
     // メッセージ
-    let dataString = "";
+    let dataString = '';
+    // 新商品リスト
+    let newProductArray = [];
+    // 不使用フラグ
+    let nouseFlg = false;
     // 商品リスト
     const productArray = await makeProductList(userID);
 
-    if (productArray == 'error') {
+    // 不使用除去
+    productArray.map(async (pd) => {
+        // 不使用無し
+        if (pd.text != "process:商品ID:0") {
+            newProductArray.push(pd);
+
+            // 不使用あり
+        } else {
+            nouseFlg = true;
+        }
+    });
+
+    // エラー時
+    if (newProductArray == 'error' || newProductArray.length == 0 || nouseFlg) {
+        // メッセージデータ
         dataString = JSON.stringify({
-            replyToken: replyToken, // 返信トークン
+            replyToken: token, // 返信トークン
             messages: [
                 {
-                    type: "text",
-                    text: "初回のご注文です。オペレータが対応します。\nアプリを閉じてお待ち下さい。",
+                    type: 'text',
+                    text: '一升瓶又はハーフボトルのご注文はトークでご依頼下さい。',
                 },
             ],
         });
-
+        
     } else {
         // 注文確認
         if (flg) {
-            titleString = "現在の注文内容\n(※確定→メッセージに「ok」）";
+            titleString = '現在の注文内容';
             fixedString = text;
 
             // 前回同注文
         } else {
-            titleString = "前同注文";
+            titleString = '前同注文';
             fixedString =
-                "前回の注文商品から選択してください。商品名以外をタップすると最初に戻ります。";
+                '前回の注文商品から選択してください。商品名以外をタップすると最初に戻ります。';
         }
 
         // メッセージデータ
@@ -1160,17 +1200,12 @@ const makeInitialList = async (token, userID, text, flg) => {
                     altText: "前回の注文商品から選択してください。",
                     template: {
                         type: "buttons",
-                        defaultAction: {
-                            type: "message",
-                            label: "はじめに戻る",
-                            text: "same",
-                        },
                         thumbnailImageUrl:
-                            "https://www.bodies.jp/wbodiesp/wp-content/uploads/2022/04/img_kiwako_column_photo_220407_01.png",
+                            "https://www.ebisu-do.jp/line/mainimage.png",
                         imageSize: "cover",
                         title: titleString,
                         text: fixedString,
-                        actions: productArray,
+                        actions: newProductArray,
                     },
                 },
             ],
@@ -1181,45 +1216,46 @@ const makeInitialList = async (token, userID, text, flg) => {
 
 // 商品リスト作成
 const makeProductList = async(userID) => {
-    // user1
-    const user1Columns = ["customerno"];
+    // ユーザ対象カラム
+    const user1Columns = ['customerno'];
     // LINEUSERから顧客番号抽出
     const userData1 = await selectDB(
-        "lineuser",
-        "userid",
+        'lineuser',
+        'userid',
         userID,
         null,
         null,
         user1Columns,
-        "id",
+        'id',
         null,
         false
     );
 
     // エラー
-    if (userData1 == "error") {
-       console.log(`product search error`);
+    if (userData1 == 'error') {
+       console.log(`product search error 7`);
     }
+
     // 顧客番号
     const customerNo1 = userData1[0].customerno;
-    // 対象列
-    const historyColumns = ["categoryid"];
+    // 履歴対象列
+    const historyColumns = ['categoryid'];
     // 履歴からカテゴリIDを抽出
     const history = await selectDB(
-        "ebisuorder",
-        "customerno",
+        'ebisuorder',
+        'customerno',
         customerNo1,
         null,
         null,
         historyColumns,
-        "id",
+        'id',
         null,
         false
     );
 
     // エラー
-    if (history == "error") {
-       console.log(`product search error`);
+    if (history == 'error') {
+       console.log(`product search error 8`);
     }
 
     // 配列初期化
@@ -1230,64 +1266,75 @@ const makeProductList = async(userID) => {
         await Promise.all(
             // 履歴ループ
             history.map(async (hs) => {
-                // 対象列
-                const product1Columns = ["categoryid", "categoryname"];
-                // 商品抽出
-                const product1 = await selectDB(
-                    "product",
-                    "categoryid",
-                    hs.categoryid,
-                    null,
-                    null,
-                    product1Columns,
-                    "id",
-                    null,
-                    false
-                );
-
-                // エラー
-                if (product1 == "error") {
-                console.log(`product search error`);
-                }
-                // カテゴリID
-                const categoryId = product1[0].categoryid;
-
-                // ソレイユ対応
-                let tmpcategoryid;
-                // ソレイユの場合
-                if (categoryId == 239 || categoryId == 999) {
-                    // ソレイユ価格対象顧客を抽出
-                    const soleilData = await existDB(
-                        "soleil",
-                        "customerno",
-                        customerNo1,
+                return new Promise(async (resolve, _) => {
+                    // カテゴリID
+                    let categoryId;
+                    // 商品対象列
+                    const product1Columns = ['categoryid', 'categoryname'];
+                    // 商品抽出
+                    const product1 = await selectDB(
+                        'product',
+                        'categoryid',
+                        hs.categoryid,
+                        'disable',
+                        0,
+                        product1Columns,
+                        'id',
                         null,
-                        null
+                        false
                     );
-                    // 該当配列
-                    const arr = Object.entries(soleilData).shift();
-                    // あり
-                    if (arr[1] == "1") {
-                        // 本数単価ソレイユ
-                        tmpcategoryid = 239;
-                    } else {
-                        // 固定単価ソレイユ
-                        tmpcategoryid = 999;
-                    }
-                } else {
-                    // ソレイユ以外はそのまま
-                    tmpcategoryid = categoryId;
-                }
 
-                // 結果が空でない
-                if (categoryId) {
-                    // 結果を配列に格納
-                    productArray.push({
-                        type: "message", // message
-                        label: product1[0].categoryname, // カテゴリ名
-                        text: `商品ID:${tmpcategoryid.toString()}`, // メッセージ
-                    });
-                }
+                    // エラー
+                    if (product1 == 'error') {
+                        // カテゴリID
+                        categoryId = 0;
+                        console.log(`product search error 8`);
+                    } else {
+                        // カテゴリID
+                        categoryId = product1[0].categoryid;
+                    }
+
+                    // ソレイユ対応
+                    let tmpcategoryid;
+                    // ソレイユの場合
+                    if (categoryId == 239 || categoryId == 999) {
+                        // ソレイユ価格対象顧客を抽出
+                        const soleilData = await existDB(
+                            'soleil',
+                            'customerno',
+                            customerNo1,
+                            null,
+                            null
+                        );
+                        // 該当配列
+                        const arr = Object.entries(soleilData).shift();
+
+                        // あり
+                        if (arr[1] == '1') {
+                            // 本数単価ソレイユ
+                            tmpcategoryid = 239;
+
+                        } else {
+                            // 固定単価ソレイユ
+                            tmpcategoryid = 999;
+                        }
+
+                    } else {
+                        // ソレイユ以外はそのまま
+                        tmpcategoryid = categoryId;
+                    }
+
+                    // 結果が空でない
+                    if (tmpcategoryid) {
+                        // 結果を配列に格納
+                        productArray.push({
+                            type: "message", // message
+                            label: product1[0].categoryname, // カテゴリ名
+                            text: `process:商品ID:${tmpcategoryid.toString()}`, // メッセージ
+                        });
+                    }
+                    resolve();
+                });
             })
         );
 
@@ -1300,6 +1347,10 @@ const makeProductList = async(userID) => {
             // 3つに減らす
             productArray.splice(4);
         }
+        // 並び替え
+        productArray.sort(
+            (a, b) => Number(a.text.split(":")[2]) - Number(b.text.split(":")[2])
+        );
 
         // 結果を返す
         return productArray;
@@ -1318,6 +1369,19 @@ const makeUnitStr = id => {
         unitStr = '個';
     }
     return unitStr;
+}
+
+// 最初に戻る
+const gotoTop = (token) => {
+    return JSON.stringify({
+        replyToken: token, // 返信トークン
+        messages: [
+            {
+                type: "text",
+                text: "process:same",
+            },
+        ],
+    });
 }
 
 // メッセージ送付
@@ -1339,7 +1403,7 @@ const sendMessage = (dtString) => {
     // リクエスト
     const request = https.request(webhookOptions, (res) => {
         res.on('data', (d) => {
-            process.stdout.write(d);
+            // process.stdout.write(d);
         });
     });
 
@@ -1351,14 +1415,22 @@ const sendMessage = (dtString) => {
 // ランダム文字列作成
 const getSecureRandom = (size) => {
     // 一時文字列
-    let result = "";
+    let result = '';
     // 生成文字リスト
-    const str = "abcdefghijklmnopqrstuvwxyz0123456789";
+    const str = 'abcdefghijklmnopqrstuvwxyz0123456789';
     // 文字を順番に格納
     for (let i = 0; i < size; i++) {
         result += str.charAt(Math.floor(Math.random() * str.length));
     }
     return result;
+};
+
+const zen2han = input => {
+    return input.replace(/[！-～]/g,
+        function(input){
+            return String.fromCharCode(input.charCodeAt(0)-0xFEE0);
+        }
+    );
 };
 
 // - database operation
@@ -1370,14 +1442,14 @@ const existDB = (table, column1, value1, column2, value2) => {
             if (column2) {
                 // query
                 await myDB.doInquiry(
-                    "SELECT COUNT (*) FROM ?? WHERE ?? = ? AND ?? = ? LIMIT 1",
+                    'SELECT COUNT (*) FROM ?? WHERE ?? = ? AND ?? = ? LIMIT 1',
                     [table, column1, value1, column2, value2]
                 );
 
             } else {
                 // query
                 await myDB.doInquiry(
-                    "SELECT COUNT (*) FROM ?? WHERE ?? = ? LIMIT 1",
+                    'SELECT COUNT (*) FROM ?? WHERE ?? = ? LIMIT 1',
                     [table, column1, value1]
                 );
             }
@@ -1398,7 +1470,7 @@ const selectDB = (table, column1, value1, column2, value2, field, order, limit, 
     return new Promise(async (resolve, reject) => {
         try {
             // query string
-            let queryString = "";
+            let queryString = '';
             // array
             let placeholder = [];
 
@@ -1406,12 +1478,12 @@ const selectDB = (table, column1, value1, column2, value2, field, order, limit, 
             if (field) {
                 if (column1) {
                     // query
-                    queryString = "SELECT ?? FROM ?? WHERE ?? IN (?)";
+                    queryString = 'SELECT ?? FROM ?? WHERE ?? IN (?)';
                     placeholder = [field, table, column1, value1];
 
                 } else {
                     // query
-                    queryString = "SELECT ?? FROM ??";
+                    queryString = 'SELECT ?? FROM ??';
                     placeholder = [field, table];
                 }
 
@@ -1419,20 +1491,20 @@ const selectDB = (table, column1, value1, column2, value2, field, order, limit, 
                 // if double search
                 if (column1) {
                     // query
-                    queryString = "SELECT * FROM ?? WHERE ?? IN (?)";
+                    queryString = 'SELECT * FROM ?? WHERE ?? IN (?)';
                     placeholder = [table, column1, value1];
 
                 // if single search
                 } else {
                     // query
-                    queryString = "SELECT * FROM ??";
+                    queryString = 'SELECT * FROM ??';
                     placeholder = [table];
                 }
             }
 
             // if double query
             if (column1 && column2) {
-                queryString += " AND ?? IN (?)";
+                queryString += ' AND ?? IN (?)';
                 placeholder.push(column2);
                 placeholder.push(value2);
             }
@@ -1441,25 +1513,25 @@ const selectDB = (table, column1, value1, column2, value2, field, order, limit, 
             if (flg) {
                 // if double search
                 if (column1) {
-                    queryString += " AND ?? > date(current_timestamp - interval 1 day)"
+                    queryString += ' AND ?? > date(current_timestamp - interval 1 day)'
                 
                 // if single search
                 } else {
                     queryString +=
-                        " WHERE ?? > date(current_timestamp - interval 1 day)";
+                        ' WHERE ?? > date(current_timestamp - interval 1 day)';
                 }
-                placeholder.push("created_at");
+                placeholder.push('created_at');
             }
 
             // if order exists
             if (order) {
-                queryString += " ORDER BY ?";
+                queryString += ' ORDER BY ?';
                 placeholder.push(order);
             }
 
             // if limit exists
             if (limit) {
-                queryString += " LIMIT ?";
+                queryString += ' LIMIT ?';
                 placeholder.push(limit);
             }
 
@@ -1509,13 +1581,13 @@ const updateDB = (
             if (selcol2) {
                 // query
                 await myDB.doInquiry(
-                    "UPDATE ?? SET ?? = ? WHERE ?? IN (?) AND ?? IN (?)",
+                    'UPDATE ?? SET ?? = ? WHERE ?? IN (?) AND ?? IN (?)',
                     [table, setcol, setval, selcol1, selval1, selcol2, selval2]
                 );
             } else {
                 // query
                 await myDB.doInquiry(
-                    "UPDATE ?? SET ?? = ? WHERE ?? IN (?)",
+                    'UPDATE ?? SET ?? = ? WHERE ?? IN (?)',
                     [table, setcol, setval, selcol1, selval1]
                 );
             }
@@ -1528,5 +1600,3 @@ const updateDB = (
         }
     });
 };
-
-
