@@ -47,7 +47,7 @@ app.get('/', (_, res) => {
 });
 
 // WEBHOOK
-app.post('/webhook', async function (req, _) {
+app.post('/webhook', async(req, _) => {
     // メッセージ
     let dataString = '';
     // 送付有無フラグ
@@ -70,8 +70,7 @@ app.post('/webhook', async function (req, _) {
             break;
 
         // 編集
-        /*
-        case 'edit':
+        case "process:edit":
             // メッセージ送付あり
             sendFlg = true;
             // プロセスリセット
@@ -80,10 +79,10 @@ app.post('/webhook', async function (req, _) {
             const randomKey = getSecureRandom(10);
             // DB更新（下書きを使用不可に）
             await updateDB(
-                'lineuser',
-                'transactionkey',
+                "lineuser",
+                "transactionkey",
                 randomKey,
-                'userid',
+                "userid",
                 userId,
                 null,
                 null
@@ -94,13 +93,12 @@ app.post('/webhook', async function (req, _) {
                 replyToken: replyToken, // 返信トークン
                 messages: [
                     {
-                        type: 'text',
+                        type: "text",
                         text: `下記URLをタップしてカード編集画面に移動して下さい。\nhttps://card.suijinclub.com/edit?key=${randomKey}\n有効期限：発行から24時間`,
                     },
                 ],
             });
             break;
-        */
 
         // 「前回と同じ」押下時
         case "process:same":
@@ -148,11 +146,12 @@ app.post('/webhook', async function (req, _) {
                     lineuserColumns,
                     lineuserValues
                 );
+
                 // エラー
                 if (insertDraft == "error") {
                     console.log(`lineuser insertion error`);
 
-                    // 成功
+                // 成功
                 } else {
                     console.log(
                         `initial insertion to lineuser completed for ${userId}.`
@@ -165,7 +164,7 @@ app.post('/webhook', async function (req, _) {
                     messages: [
                         {
                             type: "text",
-                            text: `オペレータが対応いたします。営業時間（平日9:00-16:00）内であれば3時間を目安にご対応します。アプリを閉じてお待ち下さい。(管理ID: ${managekey})`,
+                            text: `オペレータが手続きいたします。営業時間（平日9:00-16:00）内であれば3時間を目安にご対応します。アプリを閉じてお待ち下さい。(管理ID: ${managekey})`,
                         },
                     ],
                 });
@@ -176,7 +175,6 @@ app.post('/webhook', async function (req, _) {
                     "status_id",
                     "waittype_id",
                 ];
-
                 // 対応待ち下書き作成
                 const waitTalk = await insertDB("waittalk", waitColumns, [
                     userId,
@@ -188,6 +186,7 @@ app.post('/webhook', async function (req, _) {
                 // エラー
                 if (waitTalk == "error") {
                     console.log(`waittime insertion error`);
+
                 } else {
                     console.log(
                         `inital insertion to waittime completed for ${userId}.`
@@ -200,6 +199,7 @@ app.post('/webhook', async function (req, _) {
         case "process:yes":
             // メッセージ送付あり
             sendFlg = true;
+
             // 戻り禁止
             if (processId > 1) {
                 // 二重送付あり
@@ -271,6 +271,7 @@ app.post('/webhook', async function (req, _) {
             // エラー
             if (waitTalk == "error") {
                 console.log(`waittime insertion error`);
+
             } else {
                 console.log(
                     `inital insertion to waittime completed for ${userId}.`
@@ -282,6 +283,7 @@ app.post('/webhook', async function (req, _) {
         case "ok":
             // メッセージ送付あり
             sendFlg = true;
+
             // 戻り禁止
             if (processId > 4) {
                 // 二重送付あり
@@ -290,6 +292,7 @@ app.post('/webhook', async function (req, _) {
                 processId = 99;
                 break;
             }
+
             // プロセスID
             processId = 5;
             // DB更新
@@ -312,6 +315,7 @@ app.post('/webhook', async function (req, _) {
         case "process:final":
             // メッセージ送付あり
             sendFlg = true;
+
             // 戻り禁止
             if (processId > 6) {
                 // 二重送付あり
@@ -320,6 +324,7 @@ app.post('/webhook', async function (req, _) {
                 processId = 99;
                 break;
             }
+
             // プロセスID
             processId = 7;
             // 金額確定
@@ -340,6 +345,7 @@ app.post('/webhook', async function (req, _) {
         case "process:cod":
             // メッセージ送付あり
             sendFlg = true;
+
             // 戻り禁止
             if (processId > 7) {
                 // 二重送付あり
@@ -386,6 +392,7 @@ app.post('/webhook', async function (req, _) {
                 processId = 99;
                 break;
             }
+
             // プロセスID
             processId = 8;
             // transaction対象カラム
@@ -402,10 +409,12 @@ app.post('/webhook', async function (req, _) {
                 null,
                 false
             );
+
             // エラー
             if (transData == "error") {
                 console.log(`transaction search error`);
             }
+
             // トランザクションを更新
             await updateDB(
                 "transaction",
@@ -451,6 +460,7 @@ app.post('/webhook', async function (req, _) {
             if (userData2 == "error") {
                 console.log(`product search error 1`);
             }
+
             // 顧客番号
             const customerNo2 = userData2[0].customerno;
 
@@ -469,16 +479,15 @@ app.post('/webhook', async function (req, _) {
                     processId = 99;
                     break;
                 }
+
                 // 戻り防止
                 orderFlg = true;
                 // プロセスID
                 processId = 3;
-
                 // メッセージ分割
                 const tmpArray1 = tmpMessage.split(":");
                 // カテゴリID
                 const tmpCategoryId = tmpArray1[2];
-
                 // 注文対象カラム
                 const orderColumns = ["id"];
                 // 対象注文下書きID抽出
@@ -551,6 +560,7 @@ app.post('/webhook', async function (req, _) {
                 // エラー
                 if (insertDraft == "error") {
                     console.log(`draftorder insertion error`);
+
                 } else {
                     console.log(
                         `inital insertion to draftorder completed for ${userId}.`
@@ -599,6 +609,7 @@ app.post('/webhook', async function (req, _) {
             } else if (tmpMessage.includes("process:注文数")) {
                 // メッセージ送付あり
                 sendFlg = true;
+
                 // 戻り禁止
                 if (processId > 3 || !orderFlg) {
                     // 二重送付あり
@@ -609,6 +620,7 @@ app.post('/webhook', async function (req, _) {
                     processId = 99;
                     break;
                 }
+
                 // 戻り防止
                 orderFlg = false;
                 // プロセスID
@@ -651,8 +663,20 @@ app.post('/webhook', async function (req, _) {
             replyToken: replyToken, // 返信トークン
             messages: [
                 {
-                    type: 'text',
-                    text: 'もう一度最初からお願いいたします。',
+                    type: "template",
+                    altText: "もう一度最初からお願いいたします。",
+                    template: {
+                        type: "buttons",
+                        title: "もう一度最初からお願いいたします。",
+                        text: "もう一度最初からお願いいたします。",
+                        actions: [
+                            {
+                                type: "message",
+                                label: "最初に戻る",
+                                text: "prcess:same",
+                            },
+                        ],
+                    },
                 },
             ],
         });
@@ -709,33 +733,36 @@ const finalText = async(key, flg) => {
     // エラー
     if (draftData1 == 'error') {
        console.log(`draftorder search error`);
+
     } else {
         // 全Promiseを待機
         await Promise.all(
             // 注文データ内ループ
             draftData1.map(async (od2) => {
+
                 // フラグオン
                 if (flg) {
                     // 商品対象カラム
                     const product6Columns = [
-                        "categoryid",
-                        "price",
-                        "categoryname",
+                        'categoryid',
+                        'price',
+                        'categoryname',
                     ];
                     // 商品抽出
                     const product6 = await selectDB(
-                        "product",
-                        "productid",
+                        'product',
+                        'productid',
                         Number(od2.product_id),
-                        "disable",
+                        'disable',
                         0,
                         product6Columns,
-                        "id",
+                        'id',
                         null,
                         false
                     );
+
                     // エラー
-                    if (product6 == "error") {
+                    if (product6 == 'error') {
                         console.log(`product search error 3`);
                     }
 
@@ -754,8 +781,10 @@ const finalText = async(key, flg) => {
                     // データなし
                     if (counter == 0) {
                         tmpRet = "";
+
+                    // データありの場合改行コード追加
                     } else {
-                        tmpRet = "\n";
+                        tmpRet = '\n';
                     }
 
                     // 該当カテゴリ名あり
@@ -768,18 +797,19 @@ const finalText = async(key, flg) => {
                             od2.quantity
                         }${unitStr}:${totalprice.toLocaleString()}円`;
                     }
+
                 } else {
                     // 商品対象カラム
-                    const product7Columns = ["categoryname", "categoryid"];
+                    const product7Columns = ['categoryname', 'categoryid'];
                     // 商品抽出
                     const product7 = await selectDB(
-                        "product",
-                        "categoryid",
+                        'product',
+                        'categoryid',
                         Number(od2.tmpcategoryid),
-                        "disable",
+                        'disable',
                         0,
                         product7Columns,
-                        "id",
+                        'id',
                         null,
                         false
                     );
@@ -789,12 +819,16 @@ const finalText = async(key, flg) => {
                     unitStr = makeUnitStr(tmpCategoryID);
                     // 一時改行コード
                     let tmpRet;
+
                     // データなし
                     if (counter == 0) {
                         tmpRet = "";
+
+                    // データありの場合改行コード追加
                     } else {
-                        tmpRet = "\n";
+                        tmpRet = '\n';
                     }
+
                     // テキスト連結
                     if (product7[0].categoryname) {
                         tmpText += `${tmpRet}${product7[0].categoryname.slice(
@@ -803,6 +837,7 @@ const finalText = async(key, flg) => {
                         )}:${od2.quantity}${unitStr}`;
                     }
                 }
+
                 // カウンタ加算
                 counter++;
             })
@@ -814,6 +849,7 @@ const finalText = async(key, flg) => {
             finalStr = `${tmpText}\n送料: ${SHIPMENTFEE}円\n合計金額: ${(
                 lastTotalPrice + SHIPMENTFEE
             ).toLocaleString()}円`;
+
         } else {
             // そのまま
             finalStr = tmpText;
@@ -825,39 +861,38 @@ const finalText = async(key, flg) => {
 }
 
 // 注文リスト作成
-const updateOrder = (userKey) => {
+const updateOrder = userKey => {
     return new Promise(async (resolve, reject) => {
         try {
             // 注文対象カラム
-            const order2Columns = ['id', 'tmpcategoryid', 'quantity'];
+            const order2Columns = ["id", "tmpcategoryid", "quantity"];
             // 下書き注文抽出
             const draftData2 = await selectDB(
-                'draftorder',
-                'userkey',
+                "draftorder",
+                "userkey",
                 userKey,
                 null,
                 null,
                 order2Columns,
-                'id',
+                "id",
                 null,
                 true
             );
 
             // エラー
-            if (draftData2 == 'error') {
+            if (draftData2 == "error") {
                 console.log(`draftorder search error`);
                 reject();
             }
 
             // 一時合計数量
             let tmpamount = 0;
+            // 合計数量
+            let totalamount = 0;
             // 合計金額
             draftData2.map(async (od) => {
                 tmpamount += od.quantity;
             });
-
-            // 合計数量
-            let totalamount = 0;
 
             // 合計数量
             if (tmpamount < 12) {
@@ -877,24 +912,25 @@ const updateOrder = (userKey) => {
                     // カテゴリID
                     const categoryId = Number(od1.tmpcategoryid);
                     // 商品対象カラム
-                    const product3Columns = ['amount'];
+                    const product3Columns = ["amount"];
                     // 商品ID抽出
                     const product3 = await selectDB(
-                        'product',
-                        'categoryid',
+                        "product",
+                        "categoryid",
                         categoryId,
-                        'disable',
+                        "disable",
                         0,
                         product3Columns,
-                        'id',
+                        "id",
                         null,
                         false
                     );
 
                     // エラー
-                    if (product3 == 'error') {
-                       console.log(`product search error 4`);
+                    if (product3 == "error") {
+                        console.log(`product search error 4`);
                     }
+
                     // 数量配列
                     let amountArray = [];
                     // 商品数を配列に格納
@@ -907,10 +943,12 @@ const updateOrder = (userKey) => {
 
                     // 数量により分岐
                     if (amountArray.length == 0) {
-                       console.log('no data');
+                        console.log("no data");
+
                         // 1
                     } else if (amountArray.length == 1) {
                         finalamount = amountArray[0];
+
                         // 2以上
                     } else if (amountArray.length > 1) {
                         // 数量のみ
@@ -932,6 +970,7 @@ const updateOrder = (userKey) => {
                             } else if (maxNum < totalamount) {
                                 // 最大数量をそのまま採用
                                 finalamount = maxNum;
+
                                 // 以外はそのまま
                             } else {
                                 finalamount = totalamount;
@@ -954,24 +993,25 @@ const updateOrder = (userKey) => {
                 // 注文内容ループ
                 requests.map(async (req) => {
                     // 商品対象カラム
-                    const product5Columns = ['productid', 'price'];
+                    const product5Columns = ["productid", "price"];
                     // 商品抽出
                     const product5 = await selectDB(
-                        'product',
-                        'amount',
+                        "product",
+                        "amount",
                         req.amount,
-                        'categoryid',
+                        "categoryid",
                         req.categoryNo,
                         product5Columns,
-                        'id',
+                        "id",
                         null,
                         false
                     );
 
                     // エラー
-                    if (product5 == 'error') {
-                       console.log(`product search error 5`);
+                    if (product5 == "error") {
+                        console.log(`product search error 5`);
                     }
+
                     // 数量
                     const tmpQuantity = req.quantity;
                     // 合計金額
@@ -979,20 +1019,20 @@ const updateOrder = (userKey) => {
 
                     // 下書き注文更新
                     await updateDB(
-                        'draftorder',
-                        'product_id',
+                        "draftorder",
+                        "product_id",
                         product5[0].productid,
-                        'id',
+                        "id",
                         req.id,
                         null,
                         null
                     );
                     // 下書き注文更新
                     await updateDB(
-                        'draftorder',
-                        'total',
+                        "draftorder",
+                        "total",
                         totalPrice,
-                        'id',
+                        "id",
                         req.id,
                         null,
                         null
@@ -1010,7 +1050,7 @@ const updateOrder = (userKey) => {
 };
 
 // 最終金額作成
-const makeFinalPrice = (userKey) => {
+const makeFinalPrice = userKey => {
     return new Promise(async (resolve, reject) => {
         try {
             // 顧客番号
@@ -1038,6 +1078,7 @@ const makeFinalPrice = (userKey) => {
             if (draftData2 == 'error') {
                console.log(`product search error 6`);
             }
+
             // 対象注文を足し上げる
             draftData2.map(async (od4) => {
                 customerno = od4.customerno;
@@ -1155,14 +1196,16 @@ const makeInitialList = async (token, userID, text, flg) => {
 
     // 不使用除去
     productArray.map(async (pd) => {
+
         // 不使用無し
-        if (pd.text != "process:商品ID:0") {
+        if (pd.text != 'process:商品ID:0') {
             newProductArray.push(pd);
 
             // 不使用あり
         } else {
             nouseFlg = true;
         }
+
     });
 
     // エラー時
@@ -1179,6 +1222,7 @@ const makeInitialList = async (token, userID, text, flg) => {
         });
         
     } else {
+
         // 注文確認
         if (flg) {
             titleString = '現在の注文内容';
@@ -1196,13 +1240,13 @@ const makeInitialList = async (token, userID, text, flg) => {
             replyToken: token, // 返信トークン
             messages: [
                 {
-                    type: "template",
-                    altText: "前回の注文商品から選択してください。",
+                    type: 'template',
+                    altText: '前回の注文商品から選択してください。',
                     template: {
-                        type: "buttons",
+                        type: 'buttons',
                         thumbnailImageUrl:
-                            "https://www.ebisu-do.jp/line/mainimage.png",
-                        imageSize: "cover",
+                            'https://www.ebisu-do.jp/line/mainimage.png',
+                        imageSize: 'cover',
                         title: titleString,
                         text: fixedString,
                         actions: newProductArray,
@@ -1289,6 +1333,7 @@ const makeProductList = async(userID) => {
                         // カテゴリID
                         categoryId = 0;
                         console.log(`product search error 8`);
+
                     } else {
                         // カテゴリID
                         categoryId = product1[0].categoryid;
@@ -1296,6 +1341,7 @@ const makeProductList = async(userID) => {
 
                     // ソレイユ対応
                     let tmpcategoryid;
+
                     // ソレイユの場合
                     if (categoryId == 239 || categoryId == 999) {
                         // ソレイユ価格対象顧客を抽出
@@ -1328,11 +1374,12 @@ const makeProductList = async(userID) => {
                     if (tmpcategoryid) {
                         // 結果を配列に格納
                         productArray.push({
-                            type: "message", // message
+                            type: 'message', // message
                             label: product1[0].categoryname, // カテゴリ名
                             text: `process:商品ID:${tmpcategoryid.toString()}`, // メッセージ
                         });
                     }
+
                     resolve();
                 });
             })
@@ -1342,14 +1389,16 @@ const makeProductList = async(userID) => {
         return 'error';
 
     } finally {
+
         // 商品が5つ以上
         if (productArray.length > 4) {
             // 3つに減らす
             productArray.splice(4);
         }
+
         // 並び替え
         productArray.sort(
-            (a, b) => Number(a.text.split(":")[2]) - Number(b.text.split(":")[2])
+            (a, b) => Number(a.text.split(':')[2]) - Number(b.text.split(':')[2])
         );
 
         // 結果を返す
@@ -1361,34 +1410,37 @@ const makeProductList = async(userID) => {
 const makeUnitStr = id => {
     // 一時文字列
     let unitStr = '';
+
     // 酒
     if (!(id == '641' || id == '1106')) {
         unitStr = '本';
+
     // それ以外
     } else {
         unitStr = '個';
     }
+
     return unitStr;
 }
 
 // 最初に戻る
-const gotoTop = (token) => {
+const gotoTop = token => {
     return JSON.stringify({
         replyToken: token, // 返信トークン
         messages: [
             {
-                type: "text",
-                text: "process:same",
+                type: 'text',
+                text: '最初からやり直してください',
             },
         ],
     });
 }
 
 // メッセージ送付
-const sendMessage = (dtString) => {
+const sendMessage = dtString => {
     // ヘッダ
     const headers = {
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/json', // Content-type
         Authorization: 'Bearer ' + TOKEN, // 認証トークン
     };
     // WEBHOOKオプション
@@ -1402,7 +1454,7 @@ const sendMessage = (dtString) => {
 
     // リクエスト
     const request = https.request(webhookOptions, (res) => {
-        res.on('data', (d) => {
+        res.on('data', d => {
             // process.stdout.write(d);
         });
     });
@@ -1413,21 +1465,23 @@ const sendMessage = (dtString) => {
 };
 
 // ランダム文字列作成
-const getSecureRandom = (size) => {
+const getSecureRandom = size => {
     // 一時文字列
     let result = '';
     // 生成文字リスト
     const str = 'abcdefghijklmnopqrstuvwxyz0123456789';
+
     // 文字を順番に格納
     for (let i = 0; i < size; i++) {
         result += str.charAt(Math.floor(Math.random() * str.length));
     }
+
     return result;
 };
 
 const zen2han = input => {
     return input.replace(/[！-～]/g,
-        function(input){
+        input => {
             return String.fromCharCode(input.charCodeAt(0)-0xFEE0);
         }
     );
@@ -1439,6 +1493,7 @@ const zen2han = input => {
 const existDB = (table, column1, value1, column2, value2) => {
     return new Promise(async (resolve, reject) => {
         try {
+
             if (column2) {
                 // query
                 await myDB.doInquiry(
@@ -1476,17 +1531,18 @@ const selectDB = (table, column1, value1, column2, value2, field, order, limit, 
 
             // field
             if (field) {
+                // if field exists
                 if (column1) {
                     // query
-                    queryString = 'SELECT ?? FROM ?? WHERE ?? IN (?)';
+                    queryString = "SELECT ?? FROM ?? WHERE ?? IN (?)";
                     placeholder = [field, table, column1, value1];
-
+                    
+                    // if no exist
                 } else {
                     // query
-                    queryString = 'SELECT ?? FROM ??';
+                    queryString = "SELECT ?? FROM ??";
                     placeholder = [field, table];
                 }
-
             } else {
                 // if double search
                 if (column1) {
@@ -1578,12 +1634,14 @@ const updateDB = (
 ) => {
     return new Promise(async (resolve, reject) => {
         try {
+
             if (selcol2) {
                 // query
                 await myDB.doInquiry(
                     'UPDATE ?? SET ?? = ? WHERE ?? IN (?) AND ?? IN (?)',
                     [table, setcol, setval, selcol1, selval1, selcol2, selval2]
                 );
+
             } else {
                 // query
                 await myDB.doInquiry(
@@ -1591,6 +1649,7 @@ const updateDB = (
                     [table, setcol, setval, selcol1, selval1]
                 );
             }
+
             // resolve
             resolve();
 
