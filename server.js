@@ -1,5 +1,5 @@
 /**
- * index.js
+ * server.js
  *
  * function：LINE WEBHOOK サーバ
  **/
@@ -8,6 +8,7 @@
 
 // モジュール
 const express = require('express'); // express
+const helmet = require('helmet'); // helmet
 const https = require('https'); // https
 const SQL = require('./class/sql.js'); // sql
 require('dotenv').config(); // env設定
@@ -25,6 +26,7 @@ app.use(
         extended: true, // body parser使用
     })
 );
+app.use(helmet()); // ヘルメット
 
 // DB設定
 const myDB = new SQL(
@@ -63,10 +65,52 @@ app.post('/webhook', async(req, _) => {
 
     // メッセージ内容により分岐
     switch (messageStr) {
-        // 停止
-        case "break":
+        // 登録
+        case "process:regist":
+            // ランダムキー
+            const tmpKey = getSecureRandom(10);
+            // 管理キー
+            const tmpManagekey = getSecureRandom(11);
+            // lineuser対象カラム
+            const lineuserColumns = [
+                "userid",
+                "transactionkey",
+                "managekey",
+                "usable",
+            ];
+            // lineuser対象値
+            const lineuserValues = [userId, tmpKey, tmpManagekey, 1];
+            // ユーザ下書き作成
+            const userDraft = await insertDB(
+                "lineuser",
+                lineuserColumns,
+                lineuserValues
+            );
+
+            // エラー
+            if (userDraft == "error") {
+                console.log(`lineuser insertion error`);
+
+            } else {
+                console.log(
+                    `initial insertion to lineuser completed for ${tmpKey}.`
+                );
+            }
+            // メッセージ送付あり
+            sendFlg = true;
             // プロセスリセット
             processId = 0;
+
+            // オペレータ対応
+            dataString = JSON.stringify({
+                replyToken: replyToken, // 返信トークン
+                messages: [
+                    {
+                        type: "text",
+                        text: `登録作業を開始いたします。営業時間（平日9:00-16:00）内であれば3時間を目安にご対応します。アプリを閉じてお待ち下さい。(管理ID: ${tmpManagekey})`,
+                    },
+                ],
+            });
             break;
 
         // 編集
@@ -120,7 +164,7 @@ app.post('/webhook', async(req, _) => {
             // あり
             if (arr[1] == "1") {
                 // ランダムキー発行
-                userkey = getSecureRandom(21);
+                userkey = getSecureRandom(15);
                 // お届け先前同確認
                 dataString = await makeQuestionList(
                     replyToken,
@@ -151,7 +195,7 @@ app.post('/webhook', async(req, _) => {
                 if (insertDraft == "error") {
                     console.log(`lineuser insertion error`);
 
-                // 成功
+                    // 成功
                 } else {
                     console.log(
                         `initial insertion to lineuser completed for ${userId}.`
@@ -237,8 +281,6 @@ app.post('/webhook', async(req, _) => {
 
         // オペレータモード
         case "process:no":
-            // 管理キー
-            const managekey = getSecureRandom(11);
             // メッセージ送付あり
             sendFlg = true;
             // プロセスリセット
@@ -249,38 +291,14 @@ app.post('/webhook', async(req, _) => {
                 messages: [
                     {
                         type: "text",
-                        text: `オペレータが対応いたします。アプリを閉じてお待ち下さい。(管理ID: ${managekey})`,
+                        text: `お手数ですがご注文の詳細を、トークにてお伝えください。`,
                     },
                 ],
             });
-            // 対応待ち下書きカラム
-            const waitColumns = [
-                "userid",
-                "managekey",
-                "status_id",
-                "waittype_id",
-            ];
-            // 対応待ち下書き作成
-            const waitTalk = await insertDB("waittalk", waitColumns, [
-                userId,
-                managekey,
-                2,
-                2,
-            ]);
-
-            // エラー
-            if (waitTalk == "error") {
-                console.log(`waittime insertion error`);
-
-            } else {
-                console.log(
-                    `inital insertion to waittime completed for ${userId}.`
-                );
-            }
             break;
 
         // 注文OK
-        case "ok":
+        case "process:ok":
             // メッセージ送付あり
             sendFlg = true;
 
@@ -448,8 +466,8 @@ app.post('/webhook', async(req, _) => {
                 "lineuser",
                 "userid",
                 userId,
-                null,
-                null,
+                "usable",
+                1,
                 userData2Columns,
                 "id",
                 null,
@@ -673,7 +691,7 @@ app.post('/webhook', async(req, _) => {
                             {
                                 type: "message",
                                 label: "最初に戻る",
-                                text: "prcess:same",
+                                text: "process:same",
                             },
                         ],
                     },
@@ -871,8 +889,8 @@ const updateOrder = userKey => {
                 "draftorder",
                 "userkey",
                 userKey,
-                null,
-                null,
+                "disabled",
+                0,
                 order2Columns,
                 "id",
                 null,
@@ -897,10 +915,13 @@ const updateOrder = userKey => {
             // 合計数量
             if (tmpamount < 12) {
                 totalamount = 6; // 6本
+
             } else if (tmpamount < 24) {
                 totalamount = 12; // 12本
+
             } else if (tmpamount < 36) {
                 totalamount = 24; // 24本
+
             } else {
                 totalamount = 36; // 36本
             }
@@ -951,10 +972,12 @@ const updateOrder = userKey => {
 
                         // 2以上
                     } else if (amountArray.length > 1) {
+
                         // 数量のみ
                         if (amountArray.includes(totalamount)) {
                             // そのまま
                             finalamount = totalamount;
+
                         } else {
                             // 最低数量
                             const minNum = Math.min(...amountArray);
@@ -1182,11 +1205,15 @@ const makeQuestionList = async (token, title, text, label1, label2, url1, url2) 
 // 初期リスト作成
 const makeInitialList = async (token, userID, text, flg) => {
     // タイトル
-    let titleString = '';
+    let titleString = "";
     // 連結用
-    let fixedString = '';
+    let fixedString = "";
     // メッセージ
-    let dataString = '';
+    let dataString = "";
+    // 遷移メッセージ
+    let tmpString = "";
+    // 遷移先URL
+    let urlString = "";
     // 新商品リスト
     let newProductArray = [];
     // 不使用フラグ
@@ -1196,43 +1223,44 @@ const makeInitialList = async (token, userID, text, flg) => {
 
     // 不使用除去
     productArray.map(async (pd) => {
-
         // 不使用無し
-        if (pd.text != 'process:商品ID:0') {
+        if (pd.text != "process:商品ID:0") {
             newProductArray.push(pd);
 
             // 不使用あり
         } else {
             nouseFlg = true;
         }
-
     });
 
     // エラー時
-    if (newProductArray == 'error' || newProductArray.length == 0 || nouseFlg) {
+    if (newProductArray == "error" || newProductArray.length == 0 || nouseFlg) {
         // メッセージデータ
         dataString = JSON.stringify({
             replyToken: token, // 返信トークン
             messages: [
                 {
-                    type: 'text',
-                    text: '一升瓶又はハーフボトルのご注文はトークでご依頼下さい。',
+                    type: "text",
+                    text: "一升瓶又はハーフボトルのご注文はトークでご依頼下さい。",
                 },
             ],
         });
-        
     } else {
-
         // 注文確認
         if (flg) {
-            titleString = '現在の注文内容';
+            titleString = "現在の注文内容";
+            tmpString = "process:ok";
             fixedString = text;
+            urlString =
+                "https://ebisuan.sakura.ne.jp/ebisudo/line/ok_button.png";
 
             // 前回同注文
         } else {
-            titleString = '前同注文';
-            fixedString =
-                '前回の注文商品から選択してください。商品名以外をタップすると最初に戻ります。';
+            titleString = "前同注文";
+            tmpString = "process:yes";
+            fixedString = "前回の注文商品から選択してください。";
+            urlString =
+                "https://ebisuan.sakura.ne.jp/ebisudo/line/line_mainimage.jpg";
         }
 
         // メッセージデータ
@@ -1240,15 +1268,19 @@ const makeInitialList = async (token, userID, text, flg) => {
             replyToken: token, // 返信トークン
             messages: [
                 {
-                    type: 'template',
-                    altText: '前回の注文商品から選択してください。',
+                    type: "template",
+                    altText: "前回の注文商品から選択してください。",
                     template: {
-                        type: 'buttons',
-                        thumbnailImageUrl:
-                            'https://www.ebisu-do.jp/line/mainimage.png',
-                        imageSize: 'cover',
+                        type: "buttons",
+                        thumbnailImageUrl: urlString,
+                        imageSize: "cover",
                         title: titleString,
                         text: fixedString,
+                        defaultAction: {
+                            type: "message",
+                            label: "View detail",
+                            text: tmpString,
+                        },
                         actions: newProductArray,
                     },
                 },
@@ -1267,8 +1299,8 @@ const makeProductList = async(userID) => {
         'lineuser',
         'userid',
         userID,
-        null,
-        null,
+        'usable',
+        1,
         user1Columns,
         'id',
         null,
@@ -1531,6 +1563,7 @@ const selectDB = (table, column1, value1, column2, value2, field, order, limit, 
 
             // field
             if (field) {
+
                 // if field exists
                 if (column1) {
                     // query
@@ -1544,6 +1577,7 @@ const selectDB = (table, column1, value1, column2, value2, field, order, limit, 
                     placeholder = [field, table];
                 }
             } else {
+
                 // if double search
                 if (column1) {
                     // query
@@ -1567,6 +1601,7 @@ const selectDB = (table, column1, value1, column2, value2, field, order, limit, 
 
             // if recent only
             if (flg) {
+                
                 // if double search
                 if (column1) {
                     queryString += ' AND ?? > date(current_timestamp - interval 1 day)'
